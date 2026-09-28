@@ -145,9 +145,16 @@ async function callClaude(systemPrompt, userText) {
       messages: [{ role: "user", content: userText }],
     }),
   });
-  if (!res.ok) throw new Error("API error " + res.status);
-  const data = await res.json();
-  return data.content.map((b) => (b.type === "text" ? b.text : "")).join("\n");
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const errorMsg =
+      data.error ||
+      (res.status === 503
+        ? "The AI coach is temporarily busy due to high demand. Please try again in a moment."
+        : `Connection error (${res.status}). Please try again.`);
+    throw new Error(errorMsg);
+  }
+  return (data.content || []).map((b) => (b.type === "text" ? b.text : "")).join("\n");
 }
 
 function safeParseJSON(text) {
@@ -1769,11 +1776,34 @@ export default function SpeakCraft() {
             style={{
               fontFamily: "Inter, system-ui, sans-serif",
               fontSize: 13,
-              color: KOBI,
+              color: QUEEN_PINK,
+              background: "rgba(113, 12, 33, 0.5)",
+              border: `1px solid ${CHINA_ROSE}`,
+              borderRadius: 8,
+              padding: "10px 14px",
               marginBottom: 16,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
             }}
           >
-            {error}
+            <span>{error}</span>
+            <button
+              onClick={() => setError(null)}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: KOBI,
+                cursor: "pointer",
+                fontSize: 14,
+                padding: "2px 6px",
+                lineHeight: 1,
+              }}
+              title="Dismiss"
+            >
+              ✕
+            </button>
           </div>
         )}
 
