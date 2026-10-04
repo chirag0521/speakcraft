@@ -131,7 +131,8 @@ const MODES = [
 ];
 
 function dayNumber() {
-  return Math.floor(Date.now() / 86400000);
+  const d = new Date();
+  return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000);
 }
 
 async function callClaude(systemPrompt, userText) {
@@ -373,7 +374,7 @@ export default function SpeakCraft() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [thread, setThread] = useState([]); // {user, corrected, fixes, vocab, tip, followUp}
-  const [streak, setStreak] = useState(1);
+  const [streak, setStreak] = useState(0);
   const [lastPracticeDay, setLastPracticeDay] = useState(null);
   const [vocabBank, setVocabBank] = useState([]);
   const [mistakesBank, setMistakesBank] = useState([]);
@@ -488,19 +489,39 @@ export default function SpeakCraft() {
         const s = await window.storage.get("speakcraft:progress");
         if (s && s.value) {
           const parsed = JSON.parse(s.value);
-          parsed.streak = 1;
-          try {
-            await window.storage.set("speakcraft:progress", JSON.stringify(parsed));
-          } catch (err) {}
-          setStreak(1);
-          setLastPracticeDay(parsed.lastPracticeDay ?? null);
+          const today = dayNumber();
+          const lastDay = parsed.lastPracticeDay ?? null;
+          const savedStreak = Number(parsed.streak) || 0;
+
+          let currentStreak = 0;
+          if (lastDay !== null) {
+            const diff = today - lastDay;
+            if (diff === 0 || diff === 1) {
+              // Practiced today or yesterday: active streak
+              currentStreak = Math.max(savedStreak, 1);
+            } else {
+              // Missed one or more days: streak has lapsed/expired
+              currentStreak = 0;
+            }
+          }
+
+          setStreak(currentStreak);
+          setLastPracticeDay(lastDay);
           setVocabBank(parsed.vocabBank || []);
           setMistakesBank(parsed.mistakesBank || []);
+
+          // Sync storage if streak expired due to missing days
+          if (currentStreak !== savedStreak) {
+            parsed.streak = currentStreak;
+            try {
+              await window.storage.set("speakcraft:progress", JSON.stringify(parsed));
+            } catch (err) {}
+          }
         } else {
-          setStreak(1);
+          setStreak(0);
         }
       } catch (e) {
-        setStreak(1);
+        setStreak(0);
       }
       try {
         const n = await window.storage.get("speakcraft:name");
@@ -885,8 +906,10 @@ export default function SpeakCraft() {
     let body;
     if (currentStreak > 1) {
       body = `Welcome back! You're on a ${currentStreak}-day streak — let's keep that momentum going today.`;
+    } else if (currentStreak === 1) {
+      body = `Welcome back! You're on Day 1 — let's keep practicing to build your streak.`;
     } else {
-      body = `Welcome to SpeakCraft! You're on Day 1 — let's get started and practice your English speaking today.`;
+      body = `Welcome to SpeakCraft! Let's get started and practice your English speaking today.`;
     }
     const focusLine =
       focus && focus.skillToPracticeTomorrow
@@ -1013,8 +1036,13 @@ export default function SpeakCraft() {
 
       const today = dayNumber();
       let newStreak = streak;
-      if (lastPracticeDay === null || today - lastPracticeDay > 1) newStreak = 1;
-      else if (today - lastPracticeDay === 1) newStreak = streak + 1;
+      if (lastPracticeDay === null || today - lastPracticeDay > 1) {
+        newStreak = 1;
+      } else if (today - lastPracticeDay === 1) {
+        newStreak = (streak || 0) + 1;
+      } else if (today === lastPracticeDay) {
+        newStreak = Math.max(streak, 1);
+      }
 
       const newWords = (parsed.vocab || []).filter(
         (v) => !vocabBank.some((b) => b.word.toLowerCase() === v.word.toLowerCase())
