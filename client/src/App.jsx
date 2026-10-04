@@ -140,7 +140,7 @@ async function callClaude(systemPrompt, userText) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "claude-sonnet-5",
-      max_tokens: 1000,
+      max_tokens: 2500,
       system: systemPrompt,
       messages: [{ role: "user", content: userText }],
     }),
@@ -158,12 +158,72 @@ async function callClaude(systemPrompt, userText) {
 }
 
 function safeParseJSON(text) {
-  const cleaned = text.replace(/```json|```/g, "").trim();
+  if (!text || typeof text !== "string") return null;
+  let cleaned = text.trim();
+
+  // Strip markdown code fences
+  if (cleaned.includes("```")) {
+    cleaned = cleaned.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
+  }
+
+  // 1. Try direct parse
   try {
     return JSON.parse(cleaned);
-  } catch (e) {
-    return null;
+  } catch (e) {}
+
+  // 2. Try extracting the outermost { ... }
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    try {
+      return JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+    } catch (e) {}
   }
+
+  // 3. Fallback repair for partially truncated JSON
+  if (firstBrace !== -1) {
+    let candidate = cleaned.slice(firstBrace).replace(/,\s*$/, "");
+    try {
+      let inString = false;
+      let escaped = false;
+      let openBraces = 0;
+      let openBrackets = 0;
+      for (let i = 0; i < candidate.length; i++) {
+        const ch = candidate[i];
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (ch === "\\") {
+          escaped = true;
+          continue;
+        }
+        if (ch === '"') {
+          inString = !inString;
+          continue;
+        }
+        if (!inString) {
+          if (ch === "{") openBraces++;
+          else if (ch === "}") openBraces--;
+          else if (ch === "[") openBrackets++;
+          else if (ch === "]") openBrackets--;
+        }
+      }
+      let repaired = candidate;
+      if (inString) repaired += '"';
+      while (openBrackets > 0) {
+        repaired += "]";
+        openBrackets--;
+      }
+      while (openBraces > 0) {
+        repaired += "}";
+        openBraces--;
+      }
+      return JSON.parse(repaired);
+    } catch (e) {}
+  }
+
+  return null;
 }
 
 const COACH_NAME = "John";
